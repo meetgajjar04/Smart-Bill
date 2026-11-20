@@ -391,7 +391,3 @@ See [HANDOFF.md](HANDOFF.md) for the exact migration ledger and verification rec
 - [backend/db/mysql_schema.sql](backend/db/mysql_schema.sql) — authoritative versioned schema.
 
 ---
-
-## Project status
-
-The local handoff is complete and verified except for real SMTP delivery and a formal review of end-user answer quality. Those two items require an operator with a mail account and a real bill corpus; they are deliberately not claimed as verified here.
