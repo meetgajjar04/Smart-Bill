@@ -1,0 +1,17 @@
+# Never bake a developer database, secrets or caches into the image.
+.venv/
+.venv-win/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+model_store/
+.env
+.env.*
+!.env.example
+tests/
+scripts/*.db

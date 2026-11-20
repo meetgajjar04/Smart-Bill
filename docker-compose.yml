@@ -1,0 +1,85 @@
+services:
+  db:
+    image: mariadb:10.11.13
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MARIADB_DATABASE: smartbill
+      MARIADB_USER: smartbill
+      MARIADB_PASSWORD: "${MYSQL_PASSWORD}"
+      MARIADB_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+    volumes: [mysqldata:/var/lib/mysql]
+    # Keep the database off the host network; only the backend needs it.
+    expose: ["3306"]
+    healthcheck: { test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"], interval: 5s, retries: 10 }
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      DATABASE_URL: "mysql+pymysql://smartbill:${MYSQL_PASSWORD}@db:3306/smartbill"
+      SECRET_KEY: "${SECRET_KEY}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      TRUST_PROXY_HEADERS: "true"      # nginx is the only ingress and sets X-Forwarded-For
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+      N8N_WEBHOOK_URL: "${N8N_WEBHOOK_URL:-}"   # blank = use the built-in local pipeline
+      N8N_WEBHOOK_SECRET: "${N8N_WEBHOOK_SECRET}"
+      OCR_LANG: "${OCR_LANG:-eng}"
+      OLLAMA_URL: "${OLLAMA_URL:-http://ollama:11434}"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-}"
+      OLLAMA_ANALYSIS_MODEL: "${OLLAMA_ANALYSIS_MODEL:-}"
+      OLLAMA_ENABLED: "${OLLAMA_ENABLED:-true}"
+      OLLAMA_EXTRACT: "${OLLAMA_EXTRACT:-true}"
+      OLLAMA_TIMEOUT: "${OLLAMA_TIMEOUT:-300}"
+      OLLAMA_NUM_CTX: "${OLLAMA_NUM_CTX:-4096}"
+      OLLAMA_NUM_THREAD: "${OLLAMA_NUM_THREAD:-0}"
+      OLLAMA_KEEP_ALIVE: "${OLLAMA_KEEP_ALIVE:-30m}"
+      OLLAMA_WARMUP: "${OLLAMA_WARMUP:-true}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USERNAME: "${SMTP_USERNAME:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_STARTTLS: "${SMTP_STARTTLS:-true}"
+      SMTP_SSL: "${SMTP_SSL:-false}"
+      EMAIL_ENABLED: "${EMAIL_ENABLED:-true}"
+      REMINDER_DAYS_BEFORE: "${REMINDER_DAYS_BEFORE:-1}"
+      APP_URL: "${APP_URL:-http://localhost:8080}"
+      UPLOAD_DIR: /data/uploads
+    volumes: [uploads:/data/uploads]
+    expose: ["8000"]            # not published to the host: only nginx can reach it
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on: [backend]
+    ports: ["8080:80"]
+    healthcheck: { test: ["CMD", "wget", "-q", "--spider", "http://localhost/"], interval: 30s, retries: 3 }
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.9.0
+    profiles: ["ai"]                       # only starts with: docker compose --profile ai up -d
+    volumes: [ollama:/root/.ollama]
+    expose: ["11434"]
+    restart: unless-stopped
+
+  # Optional. Not started by default: the built-in pipeline needs no n8n.
+  # Enable with: docker compose --profile n8n up -d  (and import/activate the workflows).
+  n8n:
+    image: n8nio/n8n:1.82.0
+    profiles: ["n8n"]
+    environment:
+      GENERIC_TIMEZONE: Asia/Kolkata
+      N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY}"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"   # workflows read INTERNAL_API_KEY via $env
+      BACKEND_URL: http://backend:8000
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+      N8N_WEBHOOK_SECRET: "${N8N_WEBHOOK_SECRET}"
+      SMTP_FROM: "${SMTP_FROM:-Smart Bill AI <alerts@example.com>}"
+    ports: ["127.0.0.1:5678:5678"]            # editor reachable from this machine only
+    volumes: [n8n_data:/home/node/.n8n, ./n8n:/workflows:ro]
+    restart: unless-stopped
+
+volumes: { mysqldata: {}, uploads: {}, n8n_data: {}, ollama: {} }

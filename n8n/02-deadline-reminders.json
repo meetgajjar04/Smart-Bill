@@ -1,0 +1,256 @@
+{
+  "name": "Smart Bill AI - Deadline Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "**Smart Bill AI – Daily deadline reminders**\n\nRuns every day at 09:00 IST. Finds unpaid bills due in ≤3 days (or overdue), creates an in-app alert, and e-mails users who opted in. The backend skips bills already reminded in the last 20 h, so retries never double-send.",
+        "width": 440,
+        "height": 170
+      },
+      "id": "note--200",
+      "name": "Note -200",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Every Day 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/api/internal/reminders/due?days=3",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "get-due-bills",
+      "name": "Get Due Bills",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "reminders",
+        "options": {}
+      },
+      "id": "split",
+      "name": "One Item Per Bill",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.item.json;\nconst esc = s => String(s ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst inr = n => '₹' + Number(n).toLocaleString('en-IN', {maximumFractionDigits: 0});\nconst when = r.days_left < 0 ? `was due ${-r.days_left} day(s) ago` : r.days_left === 0 ? 'is due today' : `is due in ${r.days_left} day(s)`;\nconst subject = (r.days_left < 0 ? '⚠️ Overdue: ' : '⏰ Reminder: ') + r.provider + ' bill ' + inr(r.amount);\nconst html = `<div style=\"font-family:system-ui,sans-serif;max-width:520px\">\n<h2 style=\"margin:0 0 8px\">${esc(r.provider)} bill ${esc(when)}</h2>\n<p>Hi ${esc(r.name)}, your ${esc(r.category)} bill of <b>${inr(r.amount)}</b> ${esc(when)} (due ${esc(r.due_date)}).</p>\n<p>Pay it on time to avoid late fees, then mark it as paid in Smart Bill AI.</p></div>`;\nreturn { json: { ...r, subject, html } };"
+      },
+      "id": "compose-reminder",
+      "name": "Compose Reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/internal/reminders/{{ $('Compose Reminder').item.json.bill_id }}/sent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "mark-reminded-+-in-app-alert",
+      "name": "Mark Reminded + In-App Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "wants-e-mail?",
+              "leftValue": "={{ $('Compose Reminder').item.json.notify_email }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "wants-e-mail?",
+      "name": "Wants E-mail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM }}",
+        "toEmail": "={{ $('Compose Reminder').item.json.email }}",
+        "subject": "={{ $('Compose Reminder').item.json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $('Compose Reminder').item.json.html }}",
+        "options": {}
+      },
+      "id": "send-reminder-e-mail",
+      "name": "Send Reminder E-mail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1740,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME",
+          "name": "SMTP (configure in n8n)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every Day 09:00": {
+      "main": [
+        [
+          {
+            "node": "Get Due Bills",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Due Bills": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Bill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Bill": {
+      "main": [
+        [
+          {
+            "node": "Compose Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Reminder": {
+      "main": [
+        [
+          {
+            "node": "Mark Reminded + In-App Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Reminded + In-App Alert": {
+      "main": [
+        [
+          {
+            "node": "Wants E-mail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wants E-mail?": {
+      "main": [
+        [
+          {
+            "node": "Send Reminder E-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {}
+}
