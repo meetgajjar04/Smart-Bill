@@ -5,7 +5,6 @@
 ![Frontend](https://img.shields.io/badge/frontend-React%20%2B%20Vite-61DAFB?logo=react)
 ![Database](https://img.shields.io/badge/database-MySQL%20%2F%20MariaDB-4479A1?logo=mysql)
 ![AI](https://img.shields.io/badge/AI-local%20Ollama-FFD700)
-![Tests](https://img.shields.io/badge/tests-166%20passed-success)
 
 **Upload bills. Confirm what was read. Track deadlines. Ask questions. Get numbers you can trust — all on your own machine.**
 
